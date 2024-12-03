@@ -1,37 +1,30 @@
-### **Démonstration complète et réaliste : Contrôle d'accès avec les modules `mod_authz*`**
+### **Démonstration complète et réaliste : Contrôle d'accès avec pages d'erreur personnalisées et redirection**
 
-Dans cette démonstration, nous allons configurer un serveur Apache HTTPD pour gérer le contrôle d'accès à une application web en utilisant plusieurs modules `mod_authz*`. La configuration inclura des restrictions basées sur :
-1. **Adresses IP (`mod_authz_host`)**
-2. **Utilisateurs (`mod_authz_user`)**
-3. **Groupes (`mod_authz_groupfile`)**
-4. **Combinaisons avancées (`mod_authz_core`)**
-
----
-
-### **Contexte du scénario**
-
-#### Configuration cible :
-1. **Application web protégée** située dans `/var/www/secure-app`.
-2. **Accès limité** :
-   - Aux utilisateurs authentifiés appartenant au groupe `admin` ou `developer`.
-   - À des IP spécifiques pour les utilisateurs non authentifiés (réseau interne : `192.168.1.0/24`).
-3. **Protection HTTPS** via SSL.
-4. **Fichier de groupes utilisateurs** : `/etc/apache2/groups`.
-
-#### Prérequis :
-1. Apache HTTPD 2.4 installé avec les modules nécessaires (`mod_authz_host`, `mod_authz_user`, `mod_authz_groupfile`, `mod_authz_core`).
-2. Configuration SSL active.
+Dans cette démonstration, nous allons configurer un serveur Apache pour :
+1. Gérer un contrôle d'accès avancé avec les modules `mod_authz*`.
+2. Protéger une application web via HTTPS.
+3. Utiliser des pages d'erreur personnalisées pour améliorer l'expérience utilisateur.
+4. Ajouter des règles d'accès spécifiques (groupes, adresses IP).
 
 ---
 
-### **Étape 1 : Activer les modules nécessaires**
+## **Contexte du scénario**
 
-1. **Vérifier les modules disponibles** :
+Nous configurons un Virtual Host pour protéger une application dans le répertoire `/var/www/secure-app`. L'accès sera limité :
+1. **Aux utilisateurs authentifiés appartenant aux groupes `admin` ou `developer`.**
+2. **À des IP spécifiques (`192.168.1.0/24`) pour les utilisateurs non authentifiés.**
+3. **En cas d'accès refusé, les utilisateurs seront redirigés vers des pages d'erreur personnalisées.**
+
+---
+
+## **Étape 1 : Activer les modules nécessaires**
+
+1. **Vérifiez les modules activés :**
    ```bash
    apache2ctl -M
    ```
 
-2. **Activer les modules requis** (si non activés) :
+2. **Activez les modules requis (si besoin) :**
    ```bash
    sudo a2enmod authz_host authz_user authz_groupfile authz_core ssl
    sudo systemctl restart apache2
@@ -39,24 +32,24 @@ Dans cette démonstration, nous allons configurer un serveur Apache HTTPD pour g
 
 ---
 
-### **Étape 2 : Configurer les utilisateurs et groupes**
+## **Étape 2 : Configurer les utilisateurs et groupes**
 
-1. **Créer un fichier de mots de passe utilisateur**
-   - Utilisez `htpasswd` pour ajouter des utilisateurs avec des mots de passe :
+1. **Créer un fichier de mots de passe utilisateur :**
+   - Utilisez `htpasswd` pour ajouter des utilisateurs :
      ```bash
      sudo htpasswd -c /etc/apache2/.htpasswd john
      sudo htpasswd /etc/apache2/.htpasswd alice
      ```
 
-2. **Créer un fichier de groupes**
+2. **Créer un fichier de groupes :**
    - Fichier : `/etc/apache2/groups`
-     ```txt
+     ```text
      admin: john
      developer: alice
      ```
 
-3. **Vérifiez les permissions des fichiers**
-   - Assurez-vous que le serveur Apache peut lire les fichiers :
+3. **Configurer les permissions :**
+   - Assurez-vous que les fichiers sont lisibles par Apache :
      ```bash
      sudo chown root:www-data /etc/apache2/.htpasswd /etc/apache2/groups
      sudo chmod 640 /etc/apache2/.htpasswd /etc/apache2/groups
@@ -64,9 +57,53 @@ Dans cette démonstration, nous allons configurer un serveur Apache HTTPD pour g
 
 ---
 
-### **Étape 3 : Configurer le Virtual Host**
+## **Étape 3 : Configurer les pages d’erreur personnalisées**
 
-1. **Créer un Virtual Host sécurisé**
+1. **Créer un répertoire pour les pages d’erreur :**
+   ```bash
+   sudo mkdir -p /var/www/secure-app/error_pages
+   ```
+
+2. **Créer des fichiers pour chaque erreur :**
+   - **403 Forbidden (`/var/www/secure-app/error_pages/403.html`)**
+     ```html
+     <!DOCTYPE html>
+     <html>
+     <head>
+         <title>403 Forbidden</title>
+     </head>
+     <body>
+         <h1>403 - Access Denied</h1>
+         <p>You are not authorized to access this resource.</p>
+     </body>
+     </html>
+     ```
+
+   - **404 Not Found (`/var/www/secure-app/error_pages/404.html`)**
+     ```html
+     <!DOCTYPE html>
+     <html>
+     <head>
+         <title>404 Not Found</title>
+     </head>
+     <body>
+         <h1>404 - Page Not Found</h1>
+         <p>The requested resource could not be found.</p>
+     </body>
+     </html>
+     ```
+
+3. **Assurez les permissions :**
+   ```bash
+   sudo chown -R www-data:www-data /var/www/secure-app/error_pages
+   sudo chmod -R 755 /var/www/secure-app/error_pages
+   ```
+
+---
+
+## **Étape 4 : Configurer le Virtual Host**
+
+1. **Créer un Virtual Host avec contrôle d’accès et redirection des erreurs :**
    - Fichier : `/etc/apache2/sites-available/secure-app.conf`
      ```apache
      <VirtualHost *:443>
@@ -82,31 +119,30 @@ Dans cette démonstration, nous allons configurer un serveur Apache HTTPD pour g
              Options Indexes FollowSymLinks
              AllowOverride None
 
-             # Règles de contrôle d'accès
+             # Authentification et règles d'accès
              AuthType Basic
              AuthName "Restricted Access"
              AuthUserFile /etc/apache2/.htpasswd
              AuthGroupFile /etc/apache2/groups
 
-             # Accès combiné
+             # Règles combinées
              <RequireAny>
-                 # Autoriser les utilisateurs du groupe admin
                  Require group admin
-
-                 # Autoriser les utilisateurs du groupe developer
                  Require group developer
-
-                 # Autoriser les adresses IP internes
                  Require ip 192.168.1.0/24
              </RequireAny>
          </Directory>
+
+         # Pages d'erreur personnalisées
+         ErrorDocument 403 /error_pages/403.html
+         ErrorDocument 404 /error_pages/404.html
 
          ErrorLog ${APACHE_LOG_DIR}/secure-app-error.log
          CustomLog ${APACHE_LOG_DIR}/secure-app-access.log combined
      </VirtualHost>
      ```
 
-2. **Activer le site et redémarrer Apache**
+2. **Activer le site et redémarrer Apache :**
    ```bash
    sudo a2ensite secure-app.conf
    sudo systemctl reload apache2
@@ -114,71 +150,42 @@ Dans cette démonstration, nous allons configurer un serveur Apache HTTPD pour g
 
 ---
 
-### **Étape 4 : Tester la configuration**
+## **Étape 5 : Tester la configuration**
 
-#### **a. Vérifier l'accès utilisateur**
+### **a. Vérifier l’accès utilisateur**
 1. Accédez à `https://secure.example.com`.
-2. Résultat attendu :
-   - Les utilisateurs non authentifiés doivent recevoir une invite de connexion.
-   - Seuls les utilisateurs `john` et `alice` peuvent se connecter.
+2. **Résultat attendu :**
+   - Les utilisateurs non authentifiés reçoivent une invite de connexion.
+   - Les utilisateurs `john` et `alice` peuvent se connecter.
    - Les utilisateurs des groupes `admin` et `developer` ont accès.
 
-#### **b. Vérifier l'accès IP**
-1. Depuis une machine avec l'IP dans la plage `192.168.1.0/24`, accédez au site.
-2. Résultat attendu :
-   - Aucun mot de passe n'est requis.
-   - L'accès est autorisé directement.
+### **b. Tester les pages d'erreur**
+1. Simulez un accès non autorisé pour voir la page **403 Forbidden** :
+   - Essayez de vous connecter avec un utilisateur non défini.
+2. Essayez d'accéder à une page inexistante pour voir la page **404 Not Found** :
+   - Exemples : `https://secure.example.com/nonexistent`.
 
-#### **c. Logs**
-- Consultez les journaux pour vérifier les connexions et les tentatives d'accès non autorisées :
-  ```bash
-  tail -f /var/log/apache2/secure-app-access.log
-  tail -f /var/log/apache2/secure-app-error.log
-  ```
-
----
-
-### **Étape 5 : Scénario avancé (blocage et redirections)**
-
-#### Ajouter une règle pour bloquer certaines IPs
-Modifiez la configuration pour bloquer explicitement une plage IP :
-```apache
-<Directory "/var/www/secure-app">
-    <RequireAll>
-        Require not ip 10.0.0.0/8
-        RequireAny
-            Require group admin
-            Require ip 192.168.1.0/24
-    </RequireAll>
-</Directory>
-```
-
-#### Ajouter une redirection pour les utilisateurs non autorisés
-Ajoutez une directive pour rediriger les accès non autorisés vers une page d'erreur personnalisée :
-```apache
-ErrorDocument 403 /error_pages/403.html
-```
+### **c. Vérifier les journaux**
+- Vérifiez les connexions et les erreurs dans les fichiers de log :
+   ```bash
+   sudo tail -f /var/log/apache2/secure-app-access.log
+   sudo tail -f /var/log/apache2/secure-app-error.log
+   ```
 
 ---
 
-### **Étape 6 : Résumé des fichiers**
+## **Résumé des étapes**
 
-| **Fichier**                       | **Description**                                       |
-|-----------------------------------|-----------------------------------------------------|
-| `/etc/apache2/.htpasswd`          | Fichier contenant les utilisateurs et mots de passe. |
-| `/etc/apache2/groups`             | Fichier définissant les groupes d'utilisateurs.      |
-| `/etc/apache2/sites-available/secure-app.conf` | Configuration du Virtual Host sécurisé.            |
+1. **Modules activés :** `mod_authz_host`, `mod_authz_user`, `mod_authz_groupfile`, `ssl`.
+2. **Contrôle d’accès :**
+   - Basé sur les groupes définis dans `/etc/apache2/groups`.
+   - Basé sur des plages IP spécifiques.
+3. **Pages d’erreur personnalisées :**
+   - Situées dans `/var/www/secure-app/error_pages`.
+   - Spécifiées avec `ErrorDocument`.
+4. **HTTPS activé :**
+   - Assure un transfert sécurisé des données.
 
 ---
 
-### **Conclusion**
-
-Cette démonstration montre comment utiliser les modules `mod_authz*` pour :
-1. Gérer les utilisateurs et groupes via des fichiers externes.
-2. Combiner des règles d'accès basées sur des groupes, utilisateurs et adresses IP.
-3. Protéger les ressources avec des règles avancées et sécurisées.
-
-Ce type de configuration est idéal pour des applications nécessitant un contrôle d'accès granulaire, par exemple :
-- Portails intranet.
-- Zones administratives protégées.
-- Applications nécessitant une segmentation des droits par rôle.
+Cette configuration offre une solution robuste et sécurisée pour gérer les droits d’accès tout en fournissant une meilleure expérience utilisateur grâce aux pages d'erreur personnalisées et aux journaux détaillés pour le suivi des accès. 😊

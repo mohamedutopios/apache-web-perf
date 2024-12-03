@@ -1,28 +1,12 @@
-### **Simuler un serveur LDAP pour une démonstration**
-
-Pour simuler un serveur LDAP pour vos tests ou démonstrations, vous pouvez utiliser un outil comme **OpenLDAP** ou un serveur LDAP en conteneur (Docker). Voici une méthode simple et rapide pour configurer un serveur LDAP local.
+Voici une version corrigée et améliorée des étapes pour configurer un serveur LDAP, ajouter des utilisateurs et des groupes, et l'intégrer avec Apache pour une authentification sécurisée.
 
 ---
 
-### **1. Méthodes possibles**
+## **1. Configurer un serveur LDAP Dockerisé**
 
-#### **a. Installer OpenLDAP sur une machine locale**
-- Configuration manuelle du serveur LDAP sur votre machine.
-- Utile pour un contrôle complet sur l’annuaire LDAP.
-
-#### **b. Utiliser un serveur LDAP Dockerisé**
-- Rapide à configurer et portable.
-- Moins d'efforts pour la maintenance ou la suppression.
-
-Dans cette démonstration, nous allons utiliser **Docker** pour simuler un serveur LDAP avec une image préconfigurée.
-
----
-
-### **2. Utiliser Docker pour simuler un serveur LDAP**
-
-#### **a. Installer Docker**
-Si Docker n’est pas encore installé :
-- **Debian/Ubuntu** :
+### **a. Installer Docker**
+Si Docker n'est pas installé :
+- **Sur Debian/Ubuntu :**
   ```bash
   sudo apt update
   sudo apt install docker.io
@@ -30,66 +14,49 @@ Si Docker n’est pas encore installé :
   sudo systemctl enable docker
   ```
 
-- **CentOS/RHEL** :
+- **Sur CentOS/RHEL :**
   ```bash
   sudo yum install docker
   sudo systemctl start docker
   sudo systemctl enable docker
   ```
 
-#### **b. Télécharger et exécuter un conteneur LDAP**
-Utilisez l’image Docker `osixia/openldap`, qui propose une configuration prête à l’emploi :
+### **b. Démarrer un conteneur LDAP**
+Exécutez l'image Docker **`osixia/openldap`** :
 ```bash
 docker run -d \
   --name ldap-server \
   --hostname ldap.example.com \
   -p 389:389 -p 636:636 \
-  -e LDAP_ORGANISATION="Example Organization" \
+  -e LDAP_ORGANISATION="Utopios" \
   -e LDAP_DOMAIN="example.com" \
-  -e LDAP_ADMIN_PASSWORD="admin_password" \
+  -e LDAP_ADMIN_PASSWORD="admin" \
   osixia/openldap:1.5.0
 ```
 
-#### **Explications des options :**
-- **`--name`** : Nom du conteneur Docker.
-- **`--hostname`** : Nom d'hôte utilisé par le serveur LDAP.
-- **`-p 389:389`** : Redirige le port 389 (LDAP).
-- **`-p 636:636`** : Redirige le port 636 (LDAPS, sécurisé).
-- **`LDAP_ORGANISATION`** : Nom de l’organisation pour le serveur LDAP.
-- **`LDAP_DOMAIN`** : Domaine pour le serveur LDAP.
-- **`LDAP_ADMIN_PASSWORD`** : Mot de passe pour l’administrateur LDAP.
-
-#### **c. Vérifier que le serveur fonctionne**
-1. Vérifiez que le conteneur est en cours d’exécution :
-   ```bash
-   docker ps
-   ```
-
-2. Vérifiez la connectivité avec `ldapsearch` (installez `ldap-utils` si nécessaire) :
-   ```bash
-   ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin_password -b "dc=example,dc=com"
-   ```
-
 ---
 
-### **3. Ajouter des utilisateurs et des groupes**
+## **2. Ajouter des unités organisationnelles, utilisateurs et groupes**
 
-#### **a. Installer `ldap-utils`**
-Installez les outils pour interagir avec le serveur LDAP :
-- **Debian/Ubuntu** :
-  ```bash
-  sudo apt install ldap-utils
-  ```
-- **CentOS/RHEL** :
-  ```bash
-  sudo yum install openldap-clients
-  ```
+### **a. Créer des unités organisationnelles**
+1. Créez un fichier `add-ou.ldif` :
+   ```ldif
+   dn: ou=users,dc=example,dc=com
+   objectClass: organizationalUnit
+   ou: users
 
-#### **b. Créer des utilisateurs et groupes avec des fichiers LDIF**
-Les fichiers **LDIF** (LDAP Data Interchange Format) permettent d’ajouter des entrées au serveur LDAP.
+   dn: ou=groups,dc=example,dc=com
+   objectClass: organizationalUnit
+   ou: groups
+   ```
 
-1. **Créer un fichier LDIF pour un utilisateur**
-   Fichier : `add-user.ldif`
+2. Ajoutez ces OUs au serveur LDAP :
+   ```bash
+   ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin -f add-ou.ldif
+   ```
+
+### **b. Ajouter un utilisateur**
+1. Créez un fichier `add-user.ldif` :
    ```ldif
    dn: uid=john,ou=users,dc=example,dc=com
    objectClass: inetOrgPerson
@@ -101,11 +68,22 @@ Les fichiers **LDIF** (LDAP Data Interchange Format) permettent d’ajouter des 
    uidNumber: 1000
    gidNumber: 1000
    homeDirectory: /home/john
-   userPassword: john_password
+   userPassword: {SSHA}hashed_password_here
    ```
 
-2. **Créer un fichier LDIF pour un groupe**
-   Fichier : `add-group.ldif`
+2. Générez un mot de passe haché :
+   ```bash
+   slappasswd
+   ```
+   Copiez le résultat (par exemple : `{SSHA}VcJN...`) et remplacez **`hashed_password_here`** dans le fichier LDIF.
+
+3. Ajoutez l'utilisateur au serveur LDAP :
+   ```bash
+   ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin -f add-user.ldif
+   ```
+
+### **c. Ajouter un groupe**
+1. Créez un fichier `add-group.ldif` :
    ```ldif
    dn: cn=admins,ou=groups,dc=example,dc=com
    objectClass: top
@@ -115,44 +93,43 @@ Les fichiers **LDIF** (LDAP Data Interchange Format) permettent d’ajouter des 
    memberUid: john
    ```
 
-3. **Importer les fichiers LDIF dans le serveur LDAP**
+2. Ajoutez le groupe au serveur LDAP :
    ```bash
-   ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin_password -f add-user.ldif
-   ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin_password -f add-group.ldif
+   ldapadd -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin -f add-group.ldif
    ```
 
-#### **c. Vérifier les ajouts**
-- Recherchez l’utilisateur `john` :
+### **d. Vérifier les ajouts**
+- Vérifiez l'utilisateur :
   ```bash
-  ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin_password -b "dc=example,dc=com" "(uid=john)"
+  ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin -b "ou=users,dc=example,dc=com" "(uid=john)"
   ```
-- Recherchez le groupe `admins` :
+- Vérifiez le groupe :
   ```bash
-  ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin_password -b "dc=example,dc=com" "(cn=admins)"
+  ldapsearch -x -H ldap://localhost:389 -D "cn=admin,dc=example,dc=com" -w admin -b "ou=groups,dc=example,dc=com" "(cn=admins)"
   ```
 
 ---
 
-### **4. Intégrer avec Apache HTTPD**
+## **3. Configurer Apache pour l'authentification LDAP**
 
-#### **Configurer Apache pour utiliser ce serveur LDAP**
-Ajoutez cette configuration dans un Virtual Host Apache :
+### **a. Ajouter un Virtual Host avec l'authentification LDAP**
+Créez un fichier `/etc/apache2/sites-available/protected-app.conf` :
 ```apache
 <VirtualHost *:443>
-    ServerName secure.example.com
-    DocumentRoot "/var/www/secure"
+    ServerName protected.example.com
+    DocumentRoot "/var/www/protected"
 
     SSLEngine On
-    SSLCertificateFile "/etc/ssl/certs/example.com.crt"
-    SSLCertificateKeyFile "/etc/ssl/private/example.com.key"
+    SSLCertificateFile "/etc/ssl/example.crt"
+    SSLCertificateKeyFile "/etc/ssl/example.key"
 
-    <Directory "/var/www/secure">
+    <Directory "/var/www/protected">
         AuthType Basic
         AuthName "LDAP Authentication"
         AuthBasicProvider ldap
-        AuthLDAPURL "ldap://localhost:389/dc=example,dc=com?uid?sub?(objectClass=inetOrgPerson)"
+        AuthLDAPURL "ldap://localhost:389/ou=users,dc=example,dc=com?uid?sub?(objectClass=inetOrgPerson)"
         AuthLDAPBindDN "cn=admin,dc=example,dc=com"
-        AuthLDAPBindPassword "admin_password"
+        AuthLDAPBindPassword "admin"
 
         Require ldap-group cn=admins,ou=groups,dc=example,dc=com
     </Directory>
@@ -162,31 +139,50 @@ Ajoutez cette configuration dans un Virtual Host Apache :
 </VirtualHost>
 ```
 
----
-
-### **5. Tester la configuration complète**
-
-1. **Redémarrer Apache**
+### **b. Activer le site et SSL**
+1. Activez le site et le module SSL :
    ```bash
-   sudo systemctl restart apache2
+   sudo a2ensite protected-app.conf
+   sudo a2enmod ssl
+   sudo systemctl reload apache2
    ```
 
-2. **Accéder au site**
-   - Ouvrez un navigateur et accédez à `https://secure.example.com`.
-   - Une boîte de dialogue s'affichera pour demander un nom d'utilisateur et un mot de passe.
-   - Connectez-vous avec :
-     - Nom d'utilisateur : `john`
-     - Mot de passe : `john_password`
-
-3. **Résultats attendus**
-   - Si l'utilisateur appartient au groupe `admins`, il peut accéder au site.
-   - Sinon, l'accès est refusé.
+2. Assurez-vous que les certificats SSL sont valides. Vous pouvez générer des certificats auto-signés pour les tests :
+   ```bash
+   sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+       -keyout /etc/ssl/example.key -out /etc/ssl/example.crt \
+       -subj "/CN=protected.example.com"
+   ```
 
 ---
 
-### **6. Nettoyage après la démonstration**
+## **4. Tester l'accès**
 
-Si vous utilisez Docker, supprimez le conteneur LDAP une fois terminé :
+### **a. Ajouter une entrée dans le fichier `hosts`**
+Ajoutez cette ligne à votre fichier `/etc/hosts` pour pointer `protected.example.com` vers localhost :
+```plaintext
+127.0.0.1 protected.example.com
+```
+
+### **b. Accéder au site**
+1. Ouvrez un navigateur et accédez à `https://protected.example.com`.
+2. Une boîte de dialogue s'affichera pour demander un nom d'utilisateur et un mot de passe.
+3. Connectez-vous avec :
+   - **Nom d'utilisateur** : `john`
+   - **Mot de passe** : (le mot de passe défini pour `john`)
+
+---
+
+## **5. Résultats attendus**
+
+- **Accès autorisé** : Si l'utilisateur appartient au groupe LDAP `admins`, l'accès est autorisé.
+- **Accès refusé** : Si l'utilisateur ne fait pas partie du groupe, l'accès est refusé.
+
+---
+
+## **6. Nettoyage**
+
+Pour supprimer le conteneur après la démonstration :
 ```bash
 docker rm -f ldap-server
 ```
@@ -195,9 +191,9 @@ docker rm -f ldap-server
 
 ### **Résumé**
 
-- **Outils utilisés** :
-  - **Docker** : Pour configurer un serveur LDAP rapide et portable.
-  - **ldap-utils** : Pour interagir avec le serveur LDAP.
-  - **Apache HTTPD** : Pour intégrer l’authentification LDAP.
+- Vous avez configuré un serveur LDAP Dockerisé.
+- Vous avez ajouté des utilisateurs et des groupes dans LDAP.
+- Vous avez intégré LDAP avec Apache pour sécuriser un Virtual Host.
+- Vous pouvez tester les permissions en fonction des utilisateurs et des groupes LDAP.
 
-Cette méthode est idéale pour tester et simuler un environnement LDAP sans nécessiter une configuration complexe. Vous pouvez étendre cette simulation à des scénarios plus avancés avec des groupes et des attributs supplémentaires.
+Si vous rencontrez des erreurs, partagez les journaux spécifiques pour des conseils supplémentaires ! 😊

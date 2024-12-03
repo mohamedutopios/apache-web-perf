@@ -38,7 +38,8 @@ sudo systemctl restart apache2
 2. **Créer la base de données et les tables**
    Connectez-vous à MySQL en tant qu’administrateur :
    ```bash
-   mysql -u root -p
+   sudo mysql
+
    ```
 
    Créez une base de données pour l'authentification :
@@ -103,14 +104,14 @@ sudo systemctl restart apache2
    Créez un fichier `/etc/apache2/sites-available/secure-db-auth.conf` :
    ```apache
    <VirtualHost *:443>
-       ServerName secure.example.com
-       DocumentRoot "/var/www/secure"
+       ServerName secure-mysql.example.com
+       DocumentRoot "/var/www/secure-mysql"
 
        SSLEngine On
-       SSLCertificateFile "/etc/ssl/certs/example.com.crt"
-       SSLCertificateKeyFile "/etc/ssl/private/example.com.key"
+       SSLCertificateFile "/etc/apache2/ssl/example.crt"
+       SSLCertificateKeyFile "/etc/apache2/ssl/example.key"
 
-       <Directory "/var/www/secure">
+       <Directory "/var/www/secure-mysql">
            Options Indexes FollowSymLinks
            AllowOverride None
 
