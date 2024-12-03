@@ -1,6 +1,10 @@
+Voici la **seconde démonstration complète**, avec toutes les étapes révisées pour intégrer les modifications nécessaires en lien avec la configuration et l'étape 1.
+
+---
+
 ### **Démonstration : Droits dédiés et gestion des sessions PHP pour deux applications avec Apache et PHP-FPM**
 
-#### **Contexte :**
+#### **Contexte**
 Vous souhaitez :
 1. Héberger deux applications PHP distinctes.
 2. Isoler les deux applications avec des **identités dédiées** (utilisateurs distincts).
@@ -8,40 +12,57 @@ Vous souhaitez :
 
 ---
 
-### **1. Préparation de l’environnement**
+## **Étape 1 : Préparation de l’environnement**
 
-#### **Installer les composants nécessaires**
-1. Installez Apache et PHP avec PHP-FPM (deux versions différentes si nécessaire) :
+### **1.1 Installer Apache et PHP avec PHP-FPM**
+1. Mettez à jour le système et installez Apache ainsi que les versions nécessaires de PHP avec leurs gestionnaires PHP-FPM :
    ```bash
    sudo apt update
-   sudo apt install apache2 php7.4 php7.4-fpm php8.1 php8.1-fpm
+   sudo apt install apache2 php7.4 php7.4-fpm php8.1 php8.1-fpm -y
    ```
 
-2. Activez les modules Apache nécessaires :
+2. Activez les modules nécessaires pour utiliser PHP-FPM avec Apache :
    ```bash
    sudo a2enmod proxy_fcgi setenvif actions
-   sudo systemctl reload apache2
+   sudo systemctl restart apache2
    ```
 
 ---
 
-### **2. Créer des identités dédiées pour les applications**
+### **1.2 Désactiver les configurations par défaut conflictuelles**
 
-#### **Créer des utilisateurs système**
-1. Créez un utilisateur pour chaque application :
-   ```bash
-   sudo adduser --system --no-create-home --group app1
-   sudo adduser --system --no-create-home --group app2
-   ```
+#### **Désactiver les fichiers de pool par défaut**
+Les fichiers de pool par défaut peuvent créer des conflits avec les configurations spécifiques à `app1` et `app2`. Renommez-les ou désactivez-les :
+```bash
+sudo mv /etc/php/7.4/fpm/pool.d/www.conf /etc/php/7.4/fpm/pool.d/www.conf.disabled
+sudo mv /etc/php/8.1/fpm/pool.d/www.conf /etc/php/8.1/fpm/pool.d/www.conf.disabled
+```
 
-#### **Configurer les répertoires des applications**
-1. Créez les répertoires pour chaque application :
+#### **Redémarrer PHP-FPM pour appliquer les modifications**
+```bash
+sudo systemctl restart php7.4-fpm
+sudo systemctl restart php8.1-fpm
+```
+
+---
+
+## **Étape 2 : Configurer les identités dédiées pour les applications**
+
+### **2.1 Créer des utilisateurs système pour chaque application**
+Ces utilisateurs garantiront l'isolation des applications :
+```bash
+sudo adduser --system --no-create-home --group app1
+sudo adduser --system --no-create-home --group app2
+```
+
+### **2.2 Configurer les répertoires des applications**
+1. Créez les répertoires des applications :
    ```bash
    sudo mkdir -p /var/www/app1
    sudo mkdir -p /var/www/app2
    ```
 
-2. Changez les propriétaires pour correspondre aux utilisateurs créés :
+2. Attribuez les répertoires aux utilisateurs correspondants :
    ```bash
    sudo chown -R app1:app1 /var/www/app1
    sudo chown -R app2:app2 /var/www/app2
@@ -49,161 +70,169 @@ Vous souhaitez :
 
 ---
 
-### **3. Configurer PHP-FPM avec des pools dédiés**
+## **Étape 3 : Configurer PHP-FPM avec des pools dédiés**
 
-1. **Créer des fichiers de configuration pour chaque pool PHP-FPM**.
+### **3.1 Créer des fichiers de configuration pour chaque pool**
 
-- **Application 1** : `/etc/php/7.4/fpm/pool.d/app1.conf`
-  ```ini
-  [app1]
-  user = app1
-  group = app1
-  listen = /run/php/php7.4-app1.sock
-  listen.owner = www-data
-  listen.group = www-data
-  listen.mode = 0660
-  php_value[session.save_path] = /var/lib/php/sessions/app1
-  ```
+#### **Fichier pour `app1`** : `/etc/php/7.4/fpm/pool.d/app1.conf`
+```ini
+[app1]
+user = app1
+group = app1
+listen = /run/php/php7.4-app1.sock
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
 
-- **Application 2** : `/etc/php/8.1/fpm/pool.d/app2.conf`
-  ```ini
-  [app2]
-  user = app2
-  group = app2
-  listen = /run/php/php8.1-app2.sock
-  listen.owner = www-data
-  listen.group = www-data
-  listen.mode = 0660
-  php_value[session.save_path] = /var/lib/php/sessions/app2
-  ```
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
 
-2. **Créer les répertoires pour les sessions PHP** :
+php_value[session.save_path] = /var/lib/php/sessions/app1
+php_admin_value[error_log] = /var/log/php7.4-fpm-app1.log
+php_admin_flag[log_errors] = on
+```
+
+#### **Fichier pour `app2`** : `/etc/php/8.1/fpm/pool.d/app2.conf`
+```ini
+[app2]
+user = app2
+group = app2
+listen = /run/php/php8.1-app2.sock
+listen.owner = www-data
+listen.group = www-data
+listen.mode = 0660
+
+pm = dynamic
+pm.max_children = 10
+pm.start_servers = 2
+pm.min_spare_servers = 1
+pm.max_spare_servers = 3
+
+php_value[session.save_path] = /var/lib/php/sessions/app2
+php_admin_value[error_log] = /var/log/php8.1-fpm-app2.log
+php_admin_flag[log_errors] = on
+```
+
+---
+
+### **3.2 Créer les répertoires pour les sessions**
+1. Créez les répertoires pour stocker les sessions PHP :
    ```bash
    sudo mkdir -p /var/lib/php/sessions/app1
    sudo mkdir -p /var/lib/php/sessions/app2
+   ```
+
+2. Attribuez les permissions correctes :
+   ```bash
    sudo chown -R app1:app1 /var/lib/php/sessions/app1
    sudo chown -R app2:app2 /var/lib/php/sessions/app2
-   sudo chmod 700 /var/lib/php/sessions/app1 /var/lib/php/sessions/app2
+   sudo chmod 700 /var/lib/php/sessions/app1
+   sudo chmod 700 /var/lib/php/sessions/app2
    ```
 
-3. **Redémarrer PHP-FPM** :
-   ```bash
-   sudo systemctl restart php7.4-fpm
-   sudo systemctl restart php8.1-fpm
-   ```
+### **3.3 Redémarrer PHP-FPM**
+Redémarrez PHP-FPM pour appliquer les configurations :
+```bash
+sudo systemctl restart php7.4-fpm
+sudo systemctl restart php8.1-fpm
+```
 
 ---
 
-### **4. Configurer Apache avec des Virtual Hosts**
+## **Étape 4 : Configurer Apache avec des Virtual Hosts**
 
-1. **Configurer le Virtual Host pour l'application 1**
-   Fichier : `/etc/apache2/sites-available/app1.conf`
-   ```apache
-   <VirtualHost *:80>
-       ServerName app1.example.com
-       DocumentRoot /var/www/app1
+### **4.1 Créer les Virtual Hosts**
 
-       <Directory /var/www/app1>
-           AllowOverride All
-           Require all granted
-       </Directory>
+#### **Virtual Host pour `app1`** : `/etc/apache2/sites-available/app1.conf`
+```apache
+<VirtualHost *:80>
+    ServerName app1.example.com
+    DocumentRoot /var/www/app1
 
-       <FilesMatch \.php$>
-           SetHandler "proxy:unix:/run/php/php7.4-app1.sock|fcgi://localhost"
-       </FilesMatch>
+    <Directory /var/www/app1>
+        AllowOverride All
+        Require all granted
+    </Directory>
 
-       ErrorLog ${APACHE_LOG_DIR}/app1-error.log
-       CustomLog ${APACHE_LOG_DIR}/app1-access.log combined
-   </VirtualHost>
-   ```
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php7.4-app1.sock|fcgi://localhost"
+    </FilesMatch>
 
-2. **Configurer le Virtual Host pour l'application 2**
-   Fichier : `/etc/apache2/sites-available/app2.conf`
-   ```apache
-   <VirtualHost *:80>
-       ServerName app2.example.com
-       DocumentRoot /var/www/app2
+    ErrorLog ${APACHE_LOG_DIR}/app1-error.log
+    CustomLog ${APACHE_LOG_DIR}/app1-access.log combined
+</VirtualHost>
+```
 
-       <Directory /var/www/app2>
-           AllowOverride All
-           Require all granted
-       </Directory>
+#### **Virtual Host pour `app2`** : `/etc/apache2/sites-available/app2.conf`
+```apache
+<VirtualHost *:80>
+    ServerName app2.example.com
+    DocumentRoot /var/www/app2
 
-       <FilesMatch \.php$>
-           SetHandler "proxy:unix:/run/php/php8.1-app2.sock|fcgi://localhost"
-       </FilesMatch>
+    <Directory /var/www/app2>
+        AllowOverride All
+        Require all granted
+    </Directory>
 
-       ErrorLog ${APACHE_LOG_DIR}/app2-error.log
-       CustomLog ${APACHE_LOG_DIR}/app2-access.log combined
-   </VirtualHost>
-   ```
+    <FilesMatch \.php$>
+        SetHandler "proxy:unix:/run/php/php8.1-app2.sock|fcgi://localhost"
+    </FilesMatch>
 
-3. **Activer les Virtual Hosts et redémarrer Apache** :
-   ```bash
-   sudo a2ensite app1.conf app2.conf
-   sudo systemctl reload apache2
-   ```
+    ErrorLog ${APACHE_LOG_DIR}/app2-error.log
+    CustomLog ${APACHE_LOG_DIR}/app2-access.log combined
+</VirtualHost>
+```
 
 ---
 
-### **5. Tester les applications**
+### **4.2 Activer les Virtual Hosts**
+Activez les Virtual Hosts créés et rechargez Apache :
+```bash
+sudo a2ensite app1.conf
+sudo a2ensite app2.conf
+sudo systemctl reload apache2
+```
 
-1. **Créer des fichiers de test pour chaque application** :
-   - **Application 1** :
+---
+
+## **Étape 5 : Tester la configuration**
+
+### **5.1 Créer des fichiers de test**
+1. Ajoutez des fichiers de test dans chaque répertoire :
+   - Pour `app1` :
      ```bash
      echo "<?php session_start(); echo 'App1 Session ID: ' . session_id(); ?>" | sudo tee /var/www/app1/index.php
      ```
-
-   - **Application 2** :
+   - Pour `app2` :
      ```bash
      echo "<?php session_start(); echo 'App2 Session ID: ' . session_id(); ?>" | sudo tee /var/www/app2/index.php
      ```
 
-2. **Ajouter les noms de domaine au fichier `hosts`** :
-   ```bash
-   sudo nano /etc/hosts
-   ```
-   Ajoutez les lignes :
-   ```
-   127.0.0.1 app1.example.com
-   127.0.0.1 app2.example.com
-   ```
+### **5.2 Ajouter les noms de domaine au fichier `hosts`**
+Ajoutez les entrées suivantes dans `/etc/hosts` :
+```plaintext
+127.0.0.1 app1.example.com
+127.0.0.1 app2.example.com
+```
 
-3. **Accéder aux applications** :
-   - Visitez `http://app1.example.com` :
-     - Vous verrez `App1 Session ID: [session ID unique]`.
-   - Visitez `http://app2.example.com` :
-     - Vous verrez `App2 Session ID: [session ID unique]`.
-
-4. **Vérifier les fichiers de session** :
-   - Les fichiers de session de l'application 1 sont stockés dans `/var/lib/php/sessions/app1`.
-   - Les fichiers de session de l'application 2 sont stockés dans `/var/lib/php/sessions/app2`.
+### **5.3 Accéder aux applications**
+- Accédez à [http://app1.example.com](http://app1.example.com) et vérifiez que vous obtenez un ID de session unique pour App1.
+- Accédez à [http://app2.example.com](http://app2.example.com) et vérifiez que vous obtenez un ID de session unique pour App2.
 
 ---
 
-### **Résultat**
+## **Résumé**
 
-1. **Isolation des identités** :
-   - Les applications fonctionnent sous des utilisateurs dédiés (`app1`, `app2`).
-   - Les répertoires et ressources sont isolés.
-
-2. **Gestion séparée des sessions** :
-   - Chaque application stocke ses sessions dans son propre répertoire.
-   - Les sessions sont totalement indépendantes.
-
-3. **Virtual Hosts distincts** :
-   - Les applications utilisent des configurations spécifiques avec différentes versions de PHP (7.4 et 8.1).
+1. **Isoler chaque application** :
+   - Les pools PHP-FPM, répertoires de sessions, et utilisateurs système sont indépendants.
+2. **Modifier les configurations conflictuelles** :
+   - Les fichiers de pool par défaut ont été désactivés.
+3. **Tester les Virtual Hosts** :
+   - Chaque application utilise un Virtual Host spécifique.
 
 ---
 
-### **Sécurisation supplémentaire**
-- **HTTPS** : Configurez HTTPS pour les Virtual Hosts en activant `mod_ssl` et en utilisant des certificats SSL.
-- **Renforcement des sessions PHP** :
-  Modifiez les paramètres dans `php.ini` :
-  ```ini
-  session.cookie_httponly = 1
-  session.cookie_secure = 1
-  session.use_strict_mode = 1
-  ```
-
-Avec cette configuration, vos applications sont isolées, sécurisées et optimisées pour un hébergement robuste.
+Cette configuration garantit que les deux applications PHP sont isolées et fonctionnent indépendamment. Si des problèmes persistent, partagez les messages d'erreur pour un dépannage ciblé. 😊
